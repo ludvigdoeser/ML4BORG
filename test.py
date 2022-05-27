@@ -14,8 +14,8 @@ def test_foward_pass():
     chain = 0
     # setup the box
     bb = borg.forward.BoxModel()
-    L = 250
-    Nt = 128
+    L = 125
+    Nt = 64
     bb.L = L, L, L
     bb.N = Nt, Nt, Nt
     # Initialize some default cosmology
@@ -34,7 +34,7 @@ def test_foward_pass():
     lpt = borg.forward.models.BorgPM(bb, bb, ai=a0, af=1.0, z_start=z_start, particle_factor=1, force_factor=2,
                                      supersampling=1, nsteps=nsteps, tCOLA=1)
     chain.addModel(lpt)
-    genet = Genet(bb, lpt)
+    genet = Genet(bb, lpt, unet3d)
     chain.addModel(genet)
     pos_array = np.zeros((nsteps, Nt ** 3, 3))
     step_id = 0
@@ -62,6 +62,7 @@ def test_foward_pass():
     abs_pos_COLA = np.zeros((lpt.getNumberOfParticles(), 3))
     lpt.getParticlePositions(abs_pos_COLA)
     print("Done.")
+    print('delta_m = ',delta_m[0][0][0])
 
 
-test_foward_pass()
+#test_foward_pass()
