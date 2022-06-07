@@ -22,18 +22,18 @@ class Genet(borg.forward.BaseForwardModel):
 
     # Forward part
     def forwardModel_v2_impl(self, input_array):
-       
+
         # Extract particle positions
         abs_pos = np.zeros((self.prev_chain.getNumberOfParticles(), 3))
         self.prev_chain.getParticlePositions(abs_pos)
-        
+
         # Compute disp
         initial, disp = compute_displacement(abs_pos, self.box.L[0], self.box.N[0], order='F')
         initial = np.reshape(initial, (self.box.N[0], self.box.N[0], self.box.N[0], 3), order='F')
         DPF = np.reshape(disp, (self.box.N[0], self.box.N[0], self.box.N[0], 3), order='F')
 
         # Pipe through NN
-        pred = self.NN.predict(tf.expand_dims(DPF, axis=0))
+        pred = self.NN.predict(tf.expand_dims(DPF, axis=0)) # TODO: Get adjoint gradient for predict
         DPF = np.reshape(disp, (self.box.N[0], self.box.N[0], self.box.N[0], 3), order='F')
 
         # Convert back to abs pos
@@ -46,10 +46,14 @@ class Genet(borg.forward.BaseForwardModel):
 
     def getDensityFinal_impl(self, output_array):
         output_array[:] = compute_cic(self.save[:, 0], self.save[:, 1], self.save[:, 2], self.box.L[0], self.box.N[0])
-        
+
     # Adjoint part
 
     def adjointModel_v2(self, input_ag):
+        # TODO: adjoint gradient of cic + adjoint gradient of NN
+        # self.ag = ag_nn(ag_cic(input_ag))
+        # self.prev_chain.adjointModelParticles(pos, vel=np.zeros)
+
         self.ag = input_ag
 
     def getAdjointModel(self, output_ag):

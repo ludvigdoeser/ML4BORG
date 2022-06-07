@@ -5,7 +5,7 @@ from model.genet import Genet
 from model.model_unet2 import U_net_3d_2
 
 
-def test_foward_pass():
+def test_forward_pass():
     global L, bb
     width, height, depth = 64, 64, 64
     unet3d = U_net_3d_2(width, height, depth, lr=0.01, input_ch=3)
@@ -62,7 +62,4 @@ def test_foward_pass():
     abs_pos_COLA = np.zeros((lpt.getNumberOfParticles(), 3))
     lpt.getParticlePositions(abs_pos_COLA)
     print("Done.")
-    print('delta_m = ',delta_m[0][0][0])
 
-
-#test_foward_pass()
