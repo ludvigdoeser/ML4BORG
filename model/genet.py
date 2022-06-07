@@ -54,3 +54,14 @@ class Genet(borg.forward.BaseForwardModel):
 
     def getAdjointModel(self, output_ag):
         output_ag[:] = 2 * self.ag * self.save
+        
+        """
+        # Something like:
+        with tf.GradientTape() as tape:
+            x = tf.expand_dims(test_DPF,axis=0)
+            pred = unet3d.predict(x)
+
+        grads = tape.gradients(pred, x)
+        """
+
+
