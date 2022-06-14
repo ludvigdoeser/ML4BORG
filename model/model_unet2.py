@@ -4,6 +4,7 @@ from tensorflow.keras import datasets, layers, models, Model, Input
 from tensorflow.keras.layers import*
 import tensorflow.keras as keras
 
+
 def U_net_3d_2(width, height, depth,lr=0.001,input_ch=1):
     tf.keras.backend.clear_session()
 
@@ -52,6 +53,7 @@ def U_net_3d_2(width, height, depth,lr=0.001,input_ch=1):
 
     model.compile(optimizer=tf.keras.optimizers.Adam(learning_rate=lr), loss=tf.keras.losses.MeanSquaredError(),metrics=[tf.keras.metrics.MeanSquaredError()])
     return model
+
 
 def U_net_3d_2_v2(width, height, depth,lr=0.001,input_ch=1):
     tf.keras.backend.clear_session()

@@ -1,4 +1,5 @@
 import numpy as np
+import jax.numpy as jnp
 
 
 def compute_displacement(abs_pos, L, Ng, order='F'):
@@ -92,3 +93,48 @@ def compute_cic(x_in, y_in, z_in, boxsize, Ngrid):
     grid += aux
 
     return grid
+
+
+def get_cell_coord(x):
+    ix = jnp.floor(x)
+    return x - ix, ix
+
+
+def jax_cic(x, y, z, Nx: int, Ny: int, Nz: int, Lx, Ly, Lz):
+    # FIXME: convert ndarrays to jax arrays
+    # TOASK: where best to convert arrays in the chain?
+    Ntot = Nx * Ny * Nz
+    x = x * Nx / Lx
+    y = y * Ny / Ly
+    z = z * Nz / Lz
+
+    qx, ix = get_cell_coord(x)
+    qy, iy = get_cell_coord(y)
+    qz, iz = get_cell_coord(z)
+
+    ix = ix.astype(int)
+    iy = iy.astype(int)
+    iz = iz.astype(int)
+    rx = 1.0 - qx
+    ry = 1.0 - qy
+    rz = 1.0 - qz
+    jx = (ix + 1) % Nx
+    jy = (iy + 1) % Ny
+    jz = (iz + 1) % Nz
+
+    rho = jnp.zeros((Ntot,))
+
+    for a in [False, True]:
+        for b in [False, True]:
+            for c in [False, True]:
+                ax = jx if a else ix
+                ay = jy if b else iy
+                az = jz if c else iz
+                ux = qx if a else rx
+                uy = qy if b else ry
+                uz = qz if c else rz
+
+                idx = az + Nz * ay + Nz * Ny * ax
+                rho += jnp.bincount(idx, weights=ux * uy * uz, length=Ntot)
+
+    return rho.reshape((Nx, Ny, Nz)) / (x.shape[0] / Ntot) - 1.0

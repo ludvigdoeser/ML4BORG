@@ -1,5 +1,4 @@
 import borg
-import numpy as np
 import tensorflow as tf
 
 from utils.utils import *
