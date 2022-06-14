@@ -30,10 +30,22 @@ class Genet(borg.forward.BaseForwardModel):
         initial, disp = compute_displacement(abs_pos, self.box.L[0], self.box.N[0], order='F')
         initial = np.reshape(initial, (self.box.N[0], self.box.N[0], self.box.N[0], 3), order='F')
         DPF = np.reshape(disp, (self.box.N[0], self.box.N[0], self.box.N[0], 3), order='F')
+        
+        # Run through NN
+        # Fix shape of input
+        DPF_inp = tf.expand_dims(
+                tf.Variable(DPF, dtype=tf.float32),
+            axis=0)
 
-        # Pipe through NN
-        pred = self.NN.predict(tf.expand_dims(DPF, axis=0)) # TODO: Get adjoint gradient for predict
-        DPF = np.reshape(disp, (self.box.N[0], self.box.N[0], self.box.N[0], 3), order='F')
+        # Prep Automatic Diff.
+        with tf.GradientTape() as tape:
+            # x is not a tf.Variable and needs to be watched
+            tape.watch(DPF_inp) 
+            DPF_out = self.NN(DPF_inp)
+
+        self.NNgrad = tape.gradient(pred, x)
+
+        DPF = np.reshape(DPF_out, (self.box.N[0], self.box.N[0], self.box.N[0], 3), order='F')
 
         # Convert back to abs pos
         abs_pos_GENET = np.reshape(DPF + initial, (self.box.N[0] ** 3, 3))
@@ -49,7 +61,7 @@ class Genet(borg.forward.BaseForwardModel):
     # Adjoint part
 
     def adjointModel_v2(self, input_ag):
-        # TODO: adjoint gradient of cic + adjoint gradient of NN
+        # TODO: adjoint gradient of cic + adjoint gradient of NN = ?? + self.NNgrad
         # self.ag = ag_nn(ag_cic(input_ag))
         # self.prev_chain.adjointModelParticles(pos, vel=np.zeros)
 
@@ -66,5 +78,12 @@ class Genet(borg.forward.BaseForwardModel):
 
         grads = tape.gradients(pred, x)
         """
+        
+        with tf.GradientTape() as tape:
+            # x is not a tf.Variable and needs to be watched
+            tape.watch(x) 
+            pred = unet3d(x)
+
+        grads = tape.gradient(pred, x)
 
 
