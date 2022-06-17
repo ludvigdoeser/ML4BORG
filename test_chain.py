@@ -104,14 +104,6 @@ def test_forward_pass(box, linear_density, cosmo_param):
     # plt.pcolormesh(mx[:, 4, :], mz[:, 4, :], jax_density[:, 3, :])
     # plt.show()
 
-    plt.imshow(standard_density[:, :, 42])
-    plt.suptitle("standard cic")
-    plt.show()
-
-    plt.imshow(jax_density[:, :, 42])
-    plt.suptitle("jax impl")
-    plt.show()
-
     ag = np.random.uniform(size=box.N) / 10.0
     genet.adjointModel_v2(ag)
     ag_genet = np.zeros(box.N)

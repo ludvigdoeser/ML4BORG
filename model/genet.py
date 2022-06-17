@@ -1,6 +1,8 @@
 import borg
 import tensorflow as tf
 from jax import vjp
+import jax.numpy as jnp
+import numpy as np
 
 from utils.utils import *
 
@@ -45,18 +47,12 @@ class Genet(borg.forward.BaseForwardModel):
 
         self.NNgrad = tape.gradient(DPF_out, DPF_inp)
 
-        DPF = np.reshape(DPF_out, (self.box.N[0], self.box.N[0], self.box.N[0], 3), order='F')
-
-        # Convert back to abs pos
-        abs_pos_GENET = np.reshape(DPF + initial, (self.box.N[0] ** 3, 3))
-        abs_pos_GENET[abs_pos_GENET > self.box.L[0]] -= self.box.L[0]
-        abs_pos_GENET[abs_pos_GENET < 0] += self.box.L[0]
-
-        self.save = abs_pos_GENET
+        self.save, self.ag_dpf = vjp(lambda d, i: self.get_abs_pos_from_dpf(d, i), DPF_out.numpy(), initial)
         # TODO: Ask if we also need to implement 'GetParticlePosition' / 'GetParticleVelocity'
 
     def getDensityFinal_impl(self, output_array):
-        output_array[:], self.cic_grad = vjp(lambda x, y, z: jax_cic(x, y, z, *self.box.N + self.box.L), self.save[:, 0],
+        output_array[:], self.cic_grad = vjp(lambda x, y, z: jax_cic(x, y, z, *self.box.N + self.box.L),
+                                             self.save[:, 0],
                                              self.save[:, 1], self.save[:, 2])
         output_array[:] = compute_cic(self.save[:, 0], self.save[:, 1], self.save[:, 2], self.box.L[0], self.box.N[0])
 
@@ -64,10 +60,26 @@ class Genet(borg.forward.BaseForwardModel):
 
     def adjointModel_v2_impl(self, input_ag):
         # input_ag is the ag of a over-density field
-        # TODO: adjoint gradient of cic + adjoint gradient of NN = ?? + self.NNgrad
-        self.ag = self.NNgrad(self.cic_grad(input_ag))
-        self.prev_chain.adjointModelParticles(ag_pos=self.ag, vel=np.zeros)
+
+        # FIXME: Avoid intermediate tree map by merging self.cic_grad and self.ag_dpf
+        self.ag_pos = np.asarray(self.cic_grad(input_ag)).T
+        dpf_ag = np.asarray(self.ag_dpf(self.ag_pos)[0])
+
+        # FIXME: Correct mismatch of dimensions
+        # TOASK: is matmul/tensordot the correct way to propagating the adjoint gradient?
+        # np.tensordot(self.NNgrad.numpy().squeeze().T, dpf_ag.squeeze())
+        self.prev_chain.adjointModelParticles(ag_pos=self.ag_pos, vel=np.zeros)
 
     def getAdjointModel(self, output_ag):
         output_ag[:] = 0
 
+    def get_abs_pos_from_dpf(self, dpf, initial_pos):
+        DPF = jnp.reshape(dpf, (self.box.N[0], self.box.N[0], self.box.N[0], 3), order='F')
+        # Convert back to abs pos
+        # FIXME: clean up this mess
+        abs_pos_GENET = jnp.reshape(DPF + initial_pos, (self.box.N[0] ** 3, 3))
+        abs_pos_GENET = abs_pos_GENET.at[abs_pos_GENET > self.box.L[0]].set(
+            abs_pos_GENET[abs_pos_GENET > self.box.L[0]] - self.box.L[0])
+        abs_pos_GENET = abs_pos_GENET.at[abs_pos_GENET < 0].set(abs_pos_GENET[abs_pos_GENET < 0] + self.box.L[0])
+
+        return jnp.array(abs_pos_GENET)
