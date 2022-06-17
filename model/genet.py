@@ -68,7 +68,9 @@ class Genet(borg.forward.BaseForwardModel):
         # FIXME: Correct mismatch of dimensions
         # TOASK: is matmul/tensordot the correct way to propagating the adjoint gradient?
         # np.tensordot(self.NNgrad.numpy().squeeze().T, dpf_ag.squeeze())
-        self.prev_chain.adjointModelParticles(ag_pos=self.ag_pos, vel=np.zeros)
+
+        # TOASK: What is the correct data type for BORGPM.adjointModelParticles()
+        self.prev_chain.adjointModelParticles(ag_pos=np.array(self.ag_pos, dtype=np.float64), vel=np.zeros)
 
     def getAdjointModel(self, output_ag):
         output_ag[:] = 0
