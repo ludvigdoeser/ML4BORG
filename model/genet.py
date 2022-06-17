@@ -1,5 +1,6 @@
 import borg
 import tensorflow as tf
+from jax import vjp
 
 from utils.utils import *
 
@@ -21,7 +22,6 @@ class Genet(borg.forward.BaseForwardModel):
 
     # Forward part
     def forwardModel_v2_impl(self, input_array):
-
         # Extract particle positions
         abs_pos = np.zeros((self.prev_chain.getNumberOfParticles(), 3))
         self.prev_chain.getParticlePositions(abs_pos)
@@ -30,20 +30,20 @@ class Genet(borg.forward.BaseForwardModel):
         initial, disp = compute_displacement(abs_pos, self.box.L[0], self.box.N[0], order='F')
         initial = np.reshape(initial, (self.box.N[0], self.box.N[0], self.box.N[0], 3), order='F')
         DPF = np.reshape(disp, (self.box.N[0], self.box.N[0], self.box.N[0], 3), order='F')
-        
+
         # Run through NN
         # Fix shape of input
         DPF_inp = tf.expand_dims(
-                tf.Variable(DPF, dtype=tf.float32),
+            tf.Variable(DPF, dtype=tf.float32),
             axis=0)
 
         # Prep Automatic Diff.
         with tf.GradientTape() as tape:
             # x is not a tf.Variable and needs to be watched
-            tape.watch(DPF_inp) 
+            tape.watch(DPF_inp)
             DPF_out = self.NN(DPF_inp)
 
-        self.NNgrad = tape.gradient(pred, x)
+        self.NNgrad = tape.gradient(DPF_out, DPF_inp)
 
         DPF = np.reshape(DPF_out, (self.box.N[0], self.box.N[0], self.box.N[0], 3), order='F')
 
@@ -56,34 +56,18 @@ class Genet(borg.forward.BaseForwardModel):
         # TODO: Ask if we also need to implement 'GetParticlePosition' / 'GetParticleVelocity'
 
     def getDensityFinal_impl(self, output_array):
+        output_array[:], self.cic_grad = vjp(lambda x, y, z: jax_cic(x, y, z, *self.box.N + self.box.L), self.save[:, 0],
+                                             self.save[:, 1], self.save[:, 2])
         output_array[:] = compute_cic(self.save[:, 0], self.save[:, 1], self.save[:, 2], self.box.L[0], self.box.N[0])
 
     # Adjoint part
 
-    def adjointModel_v2(self, input_ag):
+    def adjointModel_v2_impl(self, input_ag):
+        # input_ag is the ag of a over-density field
         # TODO: adjoint gradient of cic + adjoint gradient of NN = ?? + self.NNgrad
-        # self.ag = ag_nn(ag_cic(input_ag))
-        # self.prev_chain.adjointModelParticles(pos, vel=np.zeros)
-
-        self.ag = input_ag
+        self.ag = self.NNgrad(self.cic_grad(input_ag))
+        self.prev_chain.adjointModelParticles(ag_pos=self.ag, vel=np.zeros)
 
     def getAdjointModel(self, output_ag):
-        output_ag[:] = 2 * self.ag * self.save
-        
-        """
-        # Something like:
-        with tf.GradientTape() as tape:
-            x = tf.expand_dims(test_DPF,axis=0)
-            pred = unet3d.predict(x)
-
-        grads = tape.gradients(pred, x)
-        """
-        
-        with tf.GradientTape() as tape:
-            # x is not a tf.Variable and needs to be watched
-            tape.watch(x) 
-            pred = unet3d(x)
-
-        grads = tape.gradient(pred, x)
-
+        output_ag[:] = 0
 

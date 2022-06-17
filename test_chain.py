@@ -1,6 +1,9 @@
 import borg
+import numpy as np
 import pytest
 import matplotlib.pyplot as plt
+
+from jax import grad, vmap, vjp
 
 from model.genet import Genet
 from model.model_unet2 import U_net_3d_2
@@ -85,10 +88,21 @@ def test_forward_pass(box, linear_density, cosmo_param):
     abs_pos_COLA = np.zeros((lpt.getNumberOfParticles(), 3))
     lpt.getParticlePositions(abs_pos_COLA)
 
+    # Convert abs_pos_COlA to jax and pass the slices
     standard_density = compute_cic(abs_pos_COLA[:, 0], abs_pos_COLA[:, 1], abs_pos_COLA[:, 2], box.L[0], box.N[0])
-    jax_density = jax_cic(abs_pos_COLA[:, 0], abs_pos_COLA[:, 1], abs_pos_COLA[:, 2], *box.N + box.L)
-    # FIXME: correct flipping internally
+    # TOASK: why use the reverse-mode for the auto-diff
+    jax_density, cic_grad = vjp(lambda x, y, z: jax_cic(x, y, z, *box.N + box.L), abs_pos_COLA[:, 0],
+                                abs_pos_COLA[:, 1], abs_pos_COLA[:, 2])
+    # FIXME: correct flipping internally and use jax
     jax_density = np.swapaxes(jax_density, 0, 2)
+
+    # ix = np.linspace(0, box.L[0], box.N[0])
+    # iy = np.linspace(0, box.L[0], box.N[0])
+    # iz = np.linspace(0, box.L[0], box.N[0])
+    #
+    # mx, my, mz = np.meshgrid(ix, iy, iz, indexing='ij')
+    # plt.pcolormesh(mx[:, 4, :], mz[:, 4, :], jax_density[:, 3, :])
+    # plt.show()
 
     plt.imshow(standard_density[:, :, 42])
     plt.suptitle("standard cic")
@@ -98,5 +112,11 @@ def test_forward_pass(box, linear_density, cosmo_param):
     plt.suptitle("jax impl")
     plt.show()
 
+    ag = np.random.uniform(size=box.N) / 10.0
+    genet.adjointModel_v2(ag)
+    ag_genet = np.zeros(box.N)
+    genet.getAdjointModel(ag_genet)
+
     # TOASK: what relative tolerance is acceptable currently 1e-1 seems very large
+    # FIXME: Check if voxels may be miss-aligned
     assert np.allclose(standard_density - 1, jax_density, rtol=1e-1)

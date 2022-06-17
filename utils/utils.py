@@ -59,6 +59,7 @@ def compute_cic(x_in, y_in, z_in, boxsize, Ngrid):
     Z = (z_c + 1) % Ngrid
 
     # Populate the density grid according to the CIC scheme
+    # FIXME: investigate how histogramdd calls bincount
 
     aux, edges = np.histogramdd(np.array([z_c, y_c, x_c]).T, weights=t_x * t_y * t_z, bins=(Ngrid, Ngrid, Ngrid),
                                 range=[[0, Ngrid], [0, Ngrid], [0, Ngrid]])
