@@ -79,14 +79,13 @@ sane_opts = {
 class emulator(borg.forward.BaseForwardModel): 
     
     # Constructor
-    def __init__(self, box, prev_module, uc, op):
+    def __init__(self, box, prev_module, up):
         super().__init__(box, box)
         self.prev_module = prev_module
         # Since we won't return an adjoint for the density, but for positions, we need to do:
         self.prev_module.accumulateAdjoint(True)
         self.box = box
-        self.use_cic = uc
-        self.one_part = op
+        self.use_pad = up
         
     # IO "preferences"
     def getPreferredInput(self):
@@ -105,31 +104,15 @@ class emulator(borg.forward.BaseForwardModel):
         print('pos = ',pos.dtype)
         print('self.pos_temp = ',self.pos_temp[0])
         
-        if self.use_cic: 
+        if self.use_pad: 
+            pos_reshaped = np.reshape(self.pos_out.T, (3,self.box.N[0],self.box.N[0],self.box.N[0]), order='C') #output shape: (3, N, N, N)
+            print('in_pad type = ',pos_reshaped.dtype)
+            print('in_pad shape = ',pos_reshaped.shape)
+            self.pos_pad, self.ag_pad = vjp(padding, pos_reshaped) #output shape: (3, N+96, N+96, N+96)
+            print('out_pad shape = ',np.shape(np.asarray(self.pos_pad)))
+            print('out_pad type = ',self.pos_pad.dtype)
             
-            if self.one_part:
-                print('Move all particles to (0,0,0) except for one.')
-                self.pos_out, self.pick_grad = vjp(pick_out,pos)
-                
-            print('self.pos_out.dtype = ',self.pos_out.dtype)
-            
-            dens_out, self.jax_cic_grad = vjp(lambda x, y, z: jax_cic(x, y, z, *self.box.N + self.box.L),
-                                                 self.pos_temp[:, 0],
-                                                 self.pos_temp[:, 1], 
-                                                 self.pos_temp[:, 2])
-            """
-            dens_out, self.jax_cic_grad = vjp(lambda x, y, z: compute_jax_cic(x, y, z, self.box.L[0], self.box.N[0]),
-                                                 self.pos_temp[:, 0],
-                                                 self.pos_temp[:, 1], 
-                                                 self.pos_temp[:, 2])
-            
-            """
-            print('dens_out.dtype = ',dens_out.dtype)
-            
-            print('dens_out = ',dens_out[0,0,:3])
-            
-            print('Set self.pos_out to be the density')
-            self.pos_out = dens_out #just so F.D. can work with the same array. But it is the density...
+            self.pos_out = self.pos_pad
         
     def getDensityFinal_impl(self, output_array):
         # Perhaps we should move this to the function 
@@ -144,58 +127,25 @@ class emulator(borg.forward.BaseForwardModel):
         print('Computing the loss')
         self.Loss, self.agL = vjp(loss,self.pos_out)
         
-        if self.use_cic:
-            self.ag_dens = np.asarray(self.agL(1.0))[0]
-            print('self.ag_dens.shape = ',self.ag_dens.shape)
-            print('self.ag_dens.dtype = ',self.ag_dens.dtype)
-            print('self.ag_dens[0,0,:3] = ',self.ag_dens[0,0,:3])
-             
-            # The problem seems to be how JAX does the indexing...    
-            # ag_pos1 does not work, ag_pos2 does work
-            self.ag_pos1 = np.transpose(np.asarray(self.jax_cic_grad(self.ag_dens))) #does not work w/o modification
-            self.ag_pos2 = np.asarray(cic_analytical_grad(self.ag_dens,self.pos_temp[:,0],self.pos_temp[:,1],self.pos_temp[:,2],128,128,128,250,250,250)) # does work
+        if self.use_pad:
+            print('Use pad')
+            ag = np.asarray(self.agL(1.0))[0]
+            print('ag.shape = ',ag.shape)
+            ag = np.asarray(self.ag_pad(ag))[0]
+            print('ag.shape = ',ag.shape)
             
-            print('self.ag_pos1 = ',self.ag_pos1)
-            print('self.ag_pos1.dtype = ',self.ag_pos1.dtype)
-            print('self.ag_pos1.shape = ',self.ag_pos1.shape)
-            print('self.ag_pos2 = ',self.ag_pos2)
-            print('self.ag_pos2.dtype = ',self.ag_pos2.dtype)
-            print('self.ag_pos2.shape = ',self.ag_pos2.shape)
-            diff = self.ag_pos1-self.ag_pos2
-            print('diff = ',diff[np.where(np.abs(diff)>1e-16)])
-            print('len(diff) = ',len(diff[np.where(np.abs(diff)>1e-16)]))
-            print('self.ag_pos1 = ',self.ag_pos1[np.where(np.abs(diff)>1e-16)])
-            print('self.ag_pos2 = ',self.ag_pos2[np.where(np.abs(diff)>1e-16)])
-            print('pos = ',self.pos_temp[np.where(np.abs(diff)>1e-16)])
-            print('index = ',np.where(np.abs(diff)>1e-16))
+            #ag = (ag+np.zeros(np.shape(ag)))/1 
+            
+            self.ag_pos = ag.reshape(3,self.box.N[0]**3,order='C').T
+            
+            self.ag_pos = (self.ag_pos+np.zeros(np.shape(self.ag_pos)))/1 
 
-            self.ag_pos = (self.ag_pos1+np.zeros(np.shape(self.ag_pos1)))/1 #works
-            """
-            print('The same arrays???: ',np.array_equal(self.ag_pos1, self.ag_pos))
-            diff = self.ag_pos-self.ag_pos1
-            print('diff = ',diff[np.where(np.abs(diff)>1e-16)])
-            print('len(diff) = ',len(diff[np.where(np.abs(diff)>1e-16)]))
-            print('self.ag_pos1 = ',self.ag_pos1[np.where(np.abs(diff)>1e-16)])
-            print('self.ag_pos2 = ',self.ag_pos2[np.where(np.abs(diff)>1e-16)])
-            print('pos = ',self.pos_temp[np.where(np.abs(diff)>1e-16)])
-            print('index = ',np.where(np.abs(diff)>1e-16))
-            """
-            #self.ag_pos = self.ag_pos1*1. #does not work
-            
-            if self.one_part:
-                self.ag_pos = np.squeeze(self.pick_grad(self.ag_pos))
-                print('num of zeros in ag_pos = ',len(self.ag_pos[np.where(np.abs(self.ag_pos)<1e-14)]))
-                print('self.ag_pos[1056832,0] = ',self.ag_pos[1056832,0])
-                print('self.ag_pos = ',np.array(self.ag_pos, dtype=np.float64)[0])
-                print('self.ag_pos = ',np.shape(self.ag_pos))
-                print('self.ag_pos.dtype = ',self.ag_pos.dtype)
-            
     def getAdjointModel_impl(self, output_ag):
         output_ag[:] = 0
         
         print('hejhej')
        
-        if not self.use_cic:
+        if not self.use_pad:
             input_ag = np.asarray(self.agL(1.0))[0]
             print('input_ag = ',input_ag[0])
             print('pos_out = ',np.array(self.pos_out, dtype=np.float64)[0])
@@ -205,17 +155,14 @@ class emulator(borg.forward.BaseForwardModel):
             # Is the same as setting the following when using a Gaussian loss with zero mean
             self.prev_module.adjointModelParticles(ag_pos=np.array(self.pos_out, dtype=np.float64), ag_vel=np.zeros_like(self.pos_out, dtype=np.float64))
         else:
-            print('Get Adjoint for CIC')
+            print('Get Adjoint for pad')
+
+            print('self.ag_pos = ',self.ag_pos[:5])
             
-            # Passes:
-            #output_ag[:] = self.pos_out #density! 
+            #self.ag_pos = self.ag_pos % self.box.L[0]
             
-            # Passes:
-            #output_ag[:] = self.ag_dens
-            
-            # Does not pass, e.g. jax_cic does not work properly:
-            print('self.ag_pos = ',self.ag_pos[0])
             self.prev_module.adjointModelParticles(ag_pos=self.ag_pos, ag_vel=np.zeros_like(self.ag_pos, dtype=np.float64))
+            
         
 def loss(out):
     global truth
@@ -229,6 +176,9 @@ def loss(out):
     """
     return jnp.sum(0.5*(out)**2)
 
+def padding(x):
+    return jnp.pad(x,((0,0),(48,48),(48,48),(48,48)),'wrap')
+
 def pick_out(pos):
     mask = jnp.zeros_like(pos)    
     mask = mask.at[1056832,0].set(1)
@@ -237,7 +187,7 @@ def pick_out(pos):
     return pos*mask
         
     
-def build_gravity_model_test(box, cpar, name, user_opts, use_emu, uc, op, v3=False, requires_grad=True):
+def build_gravity_model_test(box, cpar, name, user_opts, use_emu, up, v3=False, requires_grad=True):
     
     chain = 0 
     bb = box
@@ -262,7 +212,7 @@ def build_gravity_model_test(box, cpar, name, user_opts, use_emu, uc, op, v3=Fal
     print('Adding emulator to the chain')
 
     # Create module in BORG chain
-    emu = emulator(bb, lpt, uc, op)
+    emu = emulator(bb, lpt, up)
     chain.addModel(emu)
     
     # Set cosmology
@@ -282,8 +232,7 @@ if not borg.EMBEDDED and __name__ == "__main__":
     parser.add_argument("--eps", type=float, default=0.001)
     parser.add_argument("--emu", action="store_true", default=False)
     parser.add_argument("--fd", action="store_false", default=True)
-    parser.add_argument("--use_cic", action="store_true", default=False)
-    parser.add_argument("--one_part", action="store_true", default=False)
+    parser.add_argument("--use_pad", action="store_true", default=False)
     parser.add_argument("--test_points", type=int, default=4)
     parser.add_argument("--list", action="store_true", default=False)
     parser.add_argument("--opt", action="append", default=[], type=str)
@@ -308,12 +257,9 @@ if not borg.EMBEDDED and __name__ == "__main__":
     fd = args.fd
     print('Run finite diff: ',fd)
     
-    uc = args.use_cic
-    if uc:
-        print('Use CIC')
-    op = args.one_part
-    if op:
-        print('Only look at one particle')
+    up = args.use_pad
+    if up:
+        print('Use pad')
         
     # Grid size
     Ng = args.Ngrid
@@ -335,7 +281,7 @@ if not borg.EMBEDDED and __name__ == "__main__":
     box = borg.forward.BoxModel(L, Ng)
 
     # Get the forward model
-    fwd, emu = build_gravity_model_test(box, cpar, args.model, model_opts, use_emu, uc, op, v3=args.v3)
+    fwd, emu = build_gravity_model_test(box, cpar, args.model, model_opts, use_emu, up, v3=args.v3)
    
     # Generate some fiducial point where to compute the gradient
     np.random.seed(42)
